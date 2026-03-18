@@ -749,10 +749,19 @@ if (C.taglineTwo) {
 
 // Detail cards
 document.getElementById('card-venue').textContent = C.venue;
-document.getElementById('card-date').textContent  = C.date;
 document.getElementById('card-time').textContent  = C.time;
 document.getElementById('card-rsvp').textContent  = C.rsvp;
 document.getElementById('cal-day-text').textContent = C.calDay;
+
+// Date — split on first comma so "Saturday, 9 May 2026" shows as two lines
+// If no comma just show as-is
+const dateParts = C.date.split(',');
+const dateEl = document.getElementById('card-date');
+if(dateParts.length >= 2){
+  dateEl.innerHTML = dateParts[0].trim() + '<br>' + dateParts.slice(1).join(',').trim();
+} else {
+  dateEl.textContent = C.date;
+}
 
 // Clock hour hand — calculate angle from hour
 const hourAngle = ((C.clockHour % 12) / 12) * 360 - 90;
