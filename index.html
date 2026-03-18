@@ -1,0 +1,1157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <script>
+    // Block pinch zoom — no tap delay
+    document.addEventListener('gesturestart',function(e){e.preventDefault();},{passive:false});
+    document.addEventListener('gesturechange',function(e){e.preventDefault();},{passive:false});
+    document.addEventListener('gestureend',function(e){e.preventDefault();},{passive:false});
+    document.addEventListener('touchstart',function(e){if(e.touches.length>1)e.preventDefault();},{passive:false});
+  </script>
+  <title id="page-title">Birthday Party Invite</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fredoka+One&family=Nunito:wght@400;700;800;900&display=swap" rel="stylesheet">
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; touch-action: manipulation; }
+    html, body { touch-action: manipulation; }
+
+    body {
+      font-family: 'Nunito', sans-serif;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 1rem;
+    }
+
+    #app {
+      width: 100%;
+      max-width: 480px;
+      border-radius: 24px;
+      border: 4px solid var(--border-color);
+      overflow: hidden;
+      position: relative;
+      min-height: 600px;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.15);
+    }
+
+    canvas#bg-canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0; }
+    canvas#confetti-c { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 20; }
+
+    /* ═══ STATUS SCREENS (loading / error / cancelled / expired) ═══ */
+    .status-screen {
+      display: none; position: relative; z-index: 1;
+      flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; padding: 3rem 2rem; min-height: 500px;
+    }
+    .status-screen.show { display: flex; }
+    .status-icon  { font-size: 4rem; margin-bottom: 1.2rem; animation: bounce-in 0.5s cubic-bezier(.22,1.4,.64,1); }
+    .status-title {
+      font-family: 'Fredoka One', cursive;
+      font-size: clamp(1.3rem,4vw,1.8rem);
+      background: var(--title-gradient);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      margin-bottom: 0.8rem; line-height: 1.2;
+    }
+    .status-msg   { font-size: 0.9rem; color: var(--sub-color); line-height: 1.6; max-width: 280px; }
+    .status-screen.loading .status-icon { animation: spin-pulse 1.4s ease-in-out infinite; }
+    @keyframes bounce-in { from{transform:scale(0.3);opacity:0;} to{transform:scale(1);opacity:1;} }
+    @keyframes spin-pulse { 0%,100%{transform:scale(1) rotate(0deg);} 50%{transform:scale(1.2) rotate(10deg);} }
+
+    /* ═══ GAME ═══ */
+    #game { position: relative; z-index: 1; padding: 1rem 1rem 0.8rem; }
+
+    h1.title {
+      font-family: 'Fredoka One', cursive;
+      font-size: clamp(1.3rem, 4.5vw, 1.85rem);
+      text-align: center;
+      background: var(--title-gradient);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      margin-bottom: 0.05rem; line-height: 1.2;
+    }
+    .sub { text-align: center; font-size: 0.78rem; color: var(--sub-color); margin-bottom: 0.5rem; line-height: 1.4; }
+    .sub .highlight-one  { color: var(--accent-one);  font-weight: 800; }
+    .sub .highlight-two  { color: var(--accent-two);  font-weight: 800; }
+
+    #maze-wrap { display: flex; justify-content: center; margin-bottom: 0.4rem; position: relative; }
+    #maze-canvas { border-radius: 14px; border: 3px solid var(--border-color); display: block; max-width: 100%; }
+    #collectable-layer { position: absolute; top: 3px; left: 50%; transform: translateX(-50%); pointer-events: none; }
+    .co-emoji { position: absolute; font-size: 18px; line-height: 1; text-align: center; transform: translate(-50%, -50%); transition: opacity 0.2s; animation: co-pulse 1.8s ease-in-out infinite; }
+    .co-emoji.hidden { opacity: 0; pointer-events: none; }
+    @keyframes co-pulse { 0%,100% { transform: translate(-50%,-50%) scale(1); } 50% { transform: translate(-50%,-50%) scale(1.18); } }
+
+    #collect-bar { display: flex; justify-content: center; gap: 5px; margin: 0.3rem auto; flex-wrap: wrap; min-height: 22px; }
+    .citem { font-size: 0.95rem; opacity: 0.22; transition: opacity 0.3s, transform 0.35s; }
+    .citem.got { opacity: 1; transform: scale(1.3); }
+
+    /* Controls */
+    #controls { display: grid; grid-template-columns: repeat(3, 64px); grid-template-rows: repeat(2, 64px); gap: 8px; justify-content: center; margin: 0.5rem auto; }
+    #btn-up    { grid-column: 2; grid-row: 1; }
+    #btn-left  { grid-column: 1; grid-row: 2; }
+    #btn-down  { grid-column: 2; grid-row: 2; }
+    #btn-right { grid-column: 3; grid-row: 2; }
+    .ctrl-btn {
+      width: 64px; height: 64px; border-radius: 18px; border: none;
+      cursor: pointer; display: flex; align-items: center; justify-content: center;
+      user-select: none; -webkit-tap-highlight-color: transparent;
+      position: relative; overflow: hidden;
+      box-shadow: 0 5px 16px rgba(0,0,0,0.22);
+    }
+    .ctrl-btn::before { content: ''; position: absolute; inset: 0; background: rgba(255,255,255,0.15); border-radius: 18px; }
+    .ctrl-btn:active { opacity: 0.75; }
+    .arrow-icon {
+      width: 28px; height: 28px; display: block;
+      fill: none; stroke: white; stroke-width: 3.2;
+      stroke-linecap: round; stroke-linejoin: round;
+      filter: drop-shadow(0 1px 3px rgba(0,0,0,0.35));
+      position: relative; z-index: 1;
+    }
+
+    #status { text-align: center; font-family: 'Fredoka One', cursive; font-size: 0.9rem; color: var(--accent-one); min-height: 1.3rem; margin-top: 0.3rem; }
+
+    /* ═══ PASSWORD SCREEN ═══ */
+    #password-screen {
+      display: none; position: relative; z-index: 1;
+      padding: 2rem 1.5rem; flex-direction: column; align-items: center;
+      text-align: center;
+    }
+    #password-screen.show { display: flex; }
+    .pass-title { font-family: 'Fredoka One', cursive; font-size: 1.8rem; color: var(--accent-one); margin-bottom: 0.5rem; }
+    .pass-sub { font-size: 0.88rem; color: var(--sub-color); margin-bottom: 1.5rem; }
+    .pass-input-wrap { width: 100%; max-width: 320px; margin-bottom: 1rem; }
+    .pass-input {
+      width: 100%; padding: 0.85rem 1.2rem; border-radius: 50px;
+      border: 3px solid var(--border-color); font-family: 'Fredoka One', cursive;
+      font-size: 1.2rem; text-align: center; outline: none;
+      color: var(--accent-one); background: white;
+      box-shadow: 0 4px 14px rgba(0,0,0,0.08);
+    }
+    .pass-input:focus { border-color: var(--accent-one); }
+    .pass-btn {
+      font-family: 'Fredoka One', cursive; font-size: 1.1rem;
+      padding: 0.75rem 2.5rem; border: none; border-radius: 50px;
+      cursor: pointer; background: var(--btn-one-gradient);
+      color: white; box-shadow: 0 5px 18px rgba(0,0,0,0.2);
+      margin-bottom: 0.8rem; width: 100%; max-width: 320px;
+    }
+    .pass-error { font-family: 'Fredoka One', cursive; font-size: 0.95rem; color: #e55; min-height: 1.4rem; }
+    .pass-lock-icon { font-size: 3rem; margin-bottom: 1rem; }
+
+    /* ═══ REVEAL ═══ */
+    #reveal { display: none; position: relative; z-index: 1; padding: 1.2rem 1rem 1.5rem; flex-direction: column; align-items: center; }
+    #reveal.show { display: flex; }
+
+    .hooray {
+      font-family: 'Fredoka One', cursive;
+      font-size: clamp(2rem, 7vw, 3rem);
+      background: var(--title-gradient);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      text-align: center;
+      animation: pop-in 0.6s cubic-bezier(.22,1.4,.64,1);
+      filter: drop-shadow(0 2px 8px rgba(0,0,0,0.12));
+    }
+    @keyframes pop-in { from { transform: scale(0.3) rotate(-8deg); opacity: 0; } to { transform: scale(1) rotate(0deg); opacity: 1; } }
+
+    .emoji-row { display: flex; justify-content: center; gap: 0.45rem; font-size: 1.5rem; margin: 0.3rem 0 0.7rem; animation: slide-up 0.5s 0.2s both; }
+    @keyframes slide-up { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+
+    .names-badge {
+      background: white; border-radius: 20px; padding: 0.8rem 1.4rem;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.1); border: 3px solid var(--border-color);
+      text-align: center; margin-bottom: 0.75rem; width: 100%; max-width: 400px;
+      position: relative; overflow: hidden; animation: slide-up 0.5s 0.3s both;
+    }
+    .names-badge::before {
+      content: ''; position: absolute; top: 0; left: 0; right: 0; height: 7px;
+      background: var(--rainbow-bar);
+      background-size: 200% 100%; animation: rainbow-slide 3s linear infinite;
+    }
+    @keyframes rainbow-slide { 0% { background-position: 0% 0%; } 100% { background-position: 200% 0%; } }
+
+    .names-badge h2 {
+      font-family: 'Fredoka One', cursive; font-size: clamp(1.55rem, 5vw, 2.1rem);
+      background: var(--title-gradient);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text;
+      line-height: 1.1; margin-bottom: 0.4rem; margin-top: 0.3rem;
+    }
+    .pill-one {
+      display: inline-block; color: white; font-family: 'Fredoka One', cursive;
+      font-size: 0.95rem; padding: 0.28rem 1rem; border-radius: 50px;
+      margin-bottom: 0.3rem; box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+      background: var(--btn-one-gradient);
+    }
+    .pill-two {
+      display: inline-block; color: white; font-family: 'Fredoka One', cursive;
+      font-size: 0.95rem; padding: 0.28rem 1rem; border-radius: 50px;
+      box-shadow: 0 3px 10px rgba(0,0,0,0.15);
+      background: var(--btn-two-gradient);
+    }
+
+    .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.6rem; width: 100%; max-width: 400px; margin-bottom: 0.7rem; animation: slide-up 0.5s 0.45s both; }
+    .detail-card {
+      border-radius: 16px; padding: 0.7rem 0.75rem;
+      display: flex; flex-direction: column; align-items: center; text-align: center;
+      box-shadow: 0 4px 16px rgba(0,0,0,0.09); position: relative; overflow: hidden;
+    }
+    .detail-card::after { content: ''; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: rgba(255,255,255,0.2); border-radius: 16px; pointer-events: none; }
+    .dc-venue  { background: var(--card-venue-gradient); }
+    .dc-date   { background: var(--card-date-gradient); }
+    .dc-time   { background: var(--card-time-gradient); }
+    .card-icon  { font-size: 1.7rem; margin-bottom: 0.18rem; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.14)); }
+    .card-label { font-size: 0.62rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.82); margin-bottom: 0.12rem; }
+    .card-value { font-family: 'Fredoka One', cursive; font-size: 0.9rem; color: white; line-height: 1.2; text-shadow: 0 1px 4px rgba(0,0,0,0.14); }
+
+    .rsvp-card {
+      width: 100%; max-width: 400px; background: white; border-radius: 16px;
+      padding: 0.85rem 1.1rem; display: flex; align-items: center; gap: 0.9rem;
+      box-shadow: 0 6px 20px rgba(0,0,0,0.1); border: 2.5px dashed var(--border-color);
+      margin-bottom: 0.9rem; animation: slide-up 0.5s 0.6s both;
+    }
+    .rsvp-icon-wrap {
+      width: 50px; height: 50px; flex-shrink: 0;
+      background: var(--btn-one-gradient);
+      border-radius: 50%; display: flex; align-items: center; justify-content: center;
+      font-size: 1.5rem; box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    }
+    .rsvp-text p { font-size: 0.7rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--sub-color); margin-bottom: 0.12rem; }
+    .rsvp-text strong { font-family: 'Fredoka One', cursive; font-size: 1.15rem; color: var(--accent-one); }
+
+    .replay-btn-wrap {
+      animation: slide-up 0.5s 0.75s both; width: 100%; max-width: 400px;
+      background: white; border-radius: 20px; padding: 0.9rem 1rem;
+      box-shadow: 0 6px 24px rgba(0,0,0,0.1); border: 3px solid var(--border-color);
+      display: flex; flex-direction: column; align-items: center; gap: 0.4rem;
+    }
+    .replay-label { font-size: 0.72rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.07em; color: var(--sub-color); }
+    .replay-btn {
+      font-family: 'Fredoka One', cursive; font-size: 1.2rem;
+      padding: 0.75rem 2.2rem; border: none; border-radius: 50px; cursor: pointer;
+      background: var(--replay-gradient);
+      color: #ffffff; box-shadow: 0 6px 20px rgba(0,0,0,0.2);
+      transition: transform 0.12s; width: 100%;
+      animation: pulse-btn 2.2s ease-in-out infinite;
+      letter-spacing: 0.02em; text-shadow: 0 1px 4px rgba(0,0,0,0.2);
+    }
+    @keyframes pulse-btn {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.04); }
+    }
+    .replay-btn:hover { transform: scale(1.07) !important; }
+    .replay-btn:active { transform: scale(0.96) !important; animation: none; }
+  </style>
+</head>
+<body>
+<div id="app">
+  <canvas id="bg-canvas"></canvas>
+  <canvas id="confetti-c"></canvas>
+
+  <!-- STATUS SCREEN — loading / not found / cancelled / expired -->
+  <div id="status-screen" class="status-screen">
+    <div class="status-icon" id="status-icon">🎉</div>
+    <div class="status-title" id="status-title">Loading...</div>
+    <div class="status-msg"   id="status-msg"></div>
+  </div>
+
+  <!-- GAME -->
+  <div id="game">
+    <h1 class="title" id="game-title">Find the Party! 🎉</h1>
+    <p class="sub" id="game-sub"></p>
+    <div id="maze-wrap"><canvas id="maze-canvas"></canvas><div id="collectable-layer"></div></div>
+    <div id="collect-bar"></div>
+    <div id="controls">
+      <button class="ctrl-btn" id="btn-up">
+        <svg class="arrow-icon" viewBox="0 0 20 20"><polyline points="4,14 10,6 16,14"/></svg>
+      </button>
+      <button class="ctrl-btn" id="btn-left">
+        <svg class="arrow-icon" viewBox="0 0 20 20"><polyline points="14,4 6,10 14,16"/></svg>
+      </button>
+      <button class="ctrl-btn" id="btn-down">
+        <svg class="arrow-icon" viewBox="0 0 20 20"><polyline points="4,6 10,14 16,6"/></svg>
+      </button>
+      <button class="ctrl-btn" id="btn-right">
+        <svg class="arrow-icon" viewBox="0 0 20 20"><polyline points="6,4 14,10 6,16"/></svg>
+      </button>
+    </div>
+    <div id="status"></div>
+  </div>
+
+  <!-- PASSWORD -->
+  <div id="password-screen">
+    <div class="pass-lock-icon">🔐</div>
+    <div class="pass-title">Almost there!</div>
+    <div class="pass-sub" id="pass-sub">Enter the secret password your host sent you</div>
+    <div class="pass-input-wrap">
+      <input class="pass-input" id="pass-input" type="text" placeholder="Enter password..." autocomplete="off" autocorrect="off" autocapitalize="off"/>
+    </div>
+    <button class="pass-btn" id="pass-submit">Unlock the Party! 🎉</button>
+    <div class="pass-error" id="pass-error"></div>
+  </div>
+
+  <!-- REVEAL -->
+  <div id="reveal">
+    <div class="hooray" id="reveal-hooray">You're Invited! 🎉</div>
+    <div class="emoji-row" id="reveal-emoji-row"></div>
+    <div class="names-badge">
+      <h2 id="reveal-names"></h2>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:0.28rem;">
+        <div class="pill-one" id="reveal-pill-one"></div>
+        <div class="pill-two" id="reveal-pill-two" style="display:none;"></div>
+      </div>
+    </div>
+    <div class="details-grid">
+      <div class="detail-card dc-venue" style="grid-column:1/-1;">
+        <div class="card-icon">📍</div>
+        <div class="card-label">Where</div>
+        <div class="card-value" id="card-venue"></div>
+      </div>
+      <div class="detail-card dc-date">
+        <div class="card-icon">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <rect x="3" y="6" width="30" height="26" rx="4" fill="rgba(255,255,255,0.35)"/>
+            <rect x="3" y="6" width="30" height="26" rx="4" stroke="rgba(255,255,255,0.7)" stroke-width="1.5"/>
+            <rect x="3" y="6" width="30" height="9" rx="4" fill="rgba(255,255,255,0.25)"/>
+            <rect x="3" y="11" width="30" height="4" fill="rgba(255,255,255,0.25)"/>
+            <rect x="11" y="3" width="3" height="7" rx="1.5" fill="white"/>
+            <rect x="22" y="3" width="3" height="7" rx="1.5" fill="white"/>
+            <text id="cal-day-text" x="18" y="28" text-anchor="middle" font-family="'Fredoka One', cursive" font-size="13" font-weight="700" fill="white">9</text>
+          </svg>
+        </div>
+        <div class="card-label">When</div>
+        <div class="card-value" id="card-date"></div>
+      </div>
+      <div class="detail-card dc-time">
+        <div class="card-icon">
+          <svg width="36" height="36" viewBox="0 0 36 36" fill="none">
+            <circle cx="18" cy="18" r="15" fill="rgba(255,255,255,0.35)" stroke="rgba(255,255,255,0.7)" stroke-width="1.5"/>
+            <line x1="18" y1="5" x2="18" y2="8" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="18" y1="28" x2="18" y2="31" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="5" y1="18" x2="8" y2="18" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" stroke-linecap="round"/>
+            <line x1="28" y1="18" x2="31" y2="18" stroke="rgba(255,255,255,0.6)" stroke-width="1.5" stroke-linecap="round"/>
+            <line id="clock-hour-hand" x1="18" y1="18" x2="13.5" y2="8.5" stroke="white" stroke-width="2.5" stroke-linecap="round"/>
+            <line x1="18" y1="18" x2="18" y2="7" stroke="white" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="18" cy="18" r="2" fill="white"/>
+          </svg>
+        </div>
+        <div class="card-label">Time</div>
+        <div class="card-value" id="card-time"></div>
+      </div>
+    </div>
+    <div class="rsvp-card">
+      <div class="rsvp-icon-wrap">💬</div>
+      <div class="rsvp-text">
+        <p>Please RSVP to</p>
+        <strong id="card-rsvp"></strong>
+      </div>
+    </div>
+    <div class="replay-btn-wrap">
+      <div class="replay-label">Want to play again?</div>
+      <button class="replay-btn" id="replay-btn">🔁 Play Again!</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ════════════════════════════════════════════════
+// STEP 1 — API CONFIG
+// ════════════════════════════════════════════════
+const API_URL  = 'https://script.google.com/macros/s/AKfycbwf7_TDEgOb56ME_x0YmLy7xi7kSuSHAP3lfoLQwtalh6YEDSo-y5q6NRRT95yg3EHS/exec';
+const urlParams = new URLSearchParams(window.location.search);
+const EVENT_ID  = urlParams.get('id')    || '';
+const GUEST     = urlParams.get('g')     || '';
+
+// C is populated after API fetch — default placeholders until then
+let C = {
+  names:      'Loading...',
+  age:        '',
+  taglineOne: '',
+  taglineTwo: '',
+  date:       '',
+  calDay:     '?',
+  time:       '',
+  clockHour:  12,
+  venue:      '',
+  rsvp:       '',
+  guest:      GUEST,
+  password:   '',
+  character:  'girl',
+  theme:      'rainbow',
+  pageTitle:  'Birthday Party Invite!',
+};
+
+// ════════════════════════════════════════════════
+// LOADING / ERROR SCREENS
+// ════════════════════════════════════════════════
+function showLoading(){
+  document.getElementById('game').style.display='none';
+  document.getElementById('reveal').classList.remove('show');
+  document.getElementById('password-screen').classList.remove('show');
+  document.getElementById('status-screen').classList.add('show');
+  document.getElementById('status-icon').textContent='🎉';
+  document.getElementById('status-title').textContent='Getting your invite ready...';
+  document.getElementById('status-msg').textContent='Just a moment!';
+  document.getElementById('status-screen').className='status-screen show loading';
+}
+
+function showError(code, names, date){
+  document.getElementById('game').style.display='none';
+  document.getElementById('reveal').classList.remove('show');
+  document.getElementById('password-screen').classList.remove('show');
+  const screen = document.getElementById('status-screen');
+  const icon   = document.getElementById('status-icon');
+  const title  = document.getElementById('status-title');
+  const msg    = document.getElementById('status-msg');
+  screen.classList.add('show');
+
+  if(code === 'NOT_FOUND'){
+    screen.className='status-screen show not-found';
+    icon.textContent='🔍';
+    title.textContent="Hmm, we can't find that invite";
+    msg.textContent="Double-check the link you were sent, or contact your host.";
+  } else if(code === 'CANCELLED'){
+    screen.className='status-screen show cancelled';
+    icon.textContent='💌';
+    title.textContent = names ? names + "'s party has been cancelled" : "This party has been cancelled";
+    msg.textContent="We're sorry to hear it! Please contact your host for more details.";
+  } else if(code === 'EXPIRED'){
+    screen.className='status-screen show expired';
+    icon.textContent='🎊';
+    title.textContent = names ? "Hope you had a great time at " + names + "'s party!" : "This party has already happened!";
+    msg.textContent = date ? "The party was on " + date + ". We hope it was magical! 🎉" : "We hope it was a wonderful celebration! 🎉";
+  } else {
+    screen.className='status-screen show not-found';
+    icon.textContent='😕';
+    title.textContent="Something went wrong";
+    msg.textContent="Please try refreshing the page, or contact your host.";
+  }
+}
+
+// ════════════════════════════════════════════════
+// FETCH EVENT FROM API THEN INITIALISE
+// ════════════════════════════════════════════════
+async function loadEvent(){
+  showLoading();
+
+  // No ID in URL — show not found
+  if(!EVENT_ID){ showError('NOT_FOUND'); return; }
+
+  try {
+    const res  = await fetch(API_URL + '?action=getEvent&id=' + encodeURIComponent(EVENT_ID));
+    const data = await res.json();
+
+    if(!data.success){
+      showError(data.code || 'ERROR', data.names || '', data.date || '');
+      return;
+    }
+
+    const ev = data.event;
+
+    // Populate C from API response
+    C = {
+      names:      ev.names      || 'The Birthday Star',
+      age:        ev.age        || '',
+      taglineOne: ev.t1         || '',
+      taglineTwo: ev.t2         || '',
+      date:       ev.date       || 'Date TBC',
+      calDay:     ev.calday     || '?',
+      time:       ev.time       || 'Time TBC',
+      clockHour:  parseInt(ev.clockhour || '12'),
+      venue:      ev.venue      || 'Venue TBC',
+      rsvp:       ev.rsvp       || 'Your Host',
+      guest:      GUEST,
+      password:   ev.password   || '',
+      character:  ev.character  || 'girl',
+      theme:      ev.theme      || 'rainbow',
+      pageTitle:  (ev.names || 'Birthday') + "'s Party Invite!",
+    };
+
+    // Hide status screen, show game
+    document.getElementById('status-screen').classList.remove('show');
+    document.getElementById('game').style.display='block';
+
+    // Now initialise everything
+    initInvite();
+
+  } catch(err) {
+    showError('ERROR');
+  }
+}
+
+// ════════════════════════════════════════════════
+// STEP 2 — THEME DEFINITIONS
+// All colours, gradients and palettes per theme
+// ════════════════════════════════════════════════
+const THEMES = {
+  rainbow: {
+    bg:              'linear-gradient(160deg,#fff0f8 0%,#f5eeff 40%,#eef6ff 100%)',
+    bodyBg:          'linear-gradient(160deg,#ffe0f0 0%,#f0e0ff 50%,#e0f0ff 100%)',
+    borderColor:     '#FF9EC4',
+    titleGradient:   'linear-gradient(135deg,#FF6B9D,#c77dff)',
+    subColor:        '#d4a0bb',
+    accentOne:       '#FF6B9D',
+    accentTwo:       '#c77dff',
+    btnOneGradient:  'linear-gradient(135deg,#FF6B9D,#FF9F1C)',
+    btnTwoGradient:  'linear-gradient(135deg,#c77dff,#60C4F4)',
+    replayGradient:  'linear-gradient(135deg,#7C3AED,#DB2777)',
+    rainbowBar:      'linear-gradient(90deg,#FF6B9D,#FF9F1C,#FFD700,#4ADE80,#60C4F4,#c77dff,#FF6B9D)',
+    cardVenue:       'linear-gradient(135deg,#FFB3D1,#FF6B9D)',
+    cardDate:        'linear-gradient(135deg,#FFD4A3,#FF9F1C)',
+    cardTime:        'linear-gradient(135deg,#DDB4F7,#c77dff)',
+    btnUp:           'linear-gradient(160deg,#FF6B6B,#FF9F1C,#FFD700)',
+    btnLeft:         'linear-gradient(160deg,#FFD700,#4ADE80,#22D3EE)',
+    btnDown:         'linear-gradient(160deg,#22D3EE,#818CF8,#c77dff)',
+    btnRight:        'linear-gradient(160deg,#c77dff,#FF6B9D,#FF6B6B)',
+    wallColors:      ['#FFB3C6','#FFCBA4','#FFE8A3','#C3F4C0','#A8EDDF','#A8D8F0','#BDB4F7','#F0B4E8','#FFB3C6','#FFCBA4','#FFE8A3','#C3F4C0','#A8EDDF'],
+    balloonColors:   [['#FF6B9D','#FF9EC4'],['#c77dff','#DDB4F7'],['#60C4F4','#A8D8F0'],['#FF9F1C','#FFD4A3'],['#4ADE80','#A8F0C0'],['#FFD700','#FFF0A0']],
+    confettiColors:  ['#FF6B9D','#FFD700','#4ADE80','#93c5fd','#c77dff','#FF9F1C','#FFB3D1'],
+    glowStar:        'rgba(255,210,0,0.45)',
+    glowBow:         'rgba(255,100,180,0.45)',
+    glowGift:        'rgba(80,210,80,0.45)',
+    emojiRow:        '🎈🎀🎂🌟🎁🎀🎈',
+  },
+  pink: {
+    bg:              'linear-gradient(160deg,#fff0f5 0%,#ffe0ec 50%,#fff5f8 100%)',
+    bodyBg:          'linear-gradient(160deg,#ffe8f0 0%,#ffd0e0 50%,#ffe8f0 100%)',
+    borderColor:     '#FF6B9D',
+    titleGradient:   'linear-gradient(135deg,#FF6B9D,#FF9EC4)',
+    subColor:        '#d4708a',
+    accentOne:       '#FF6B9D',
+    accentTwo:       '#FF9EC4',
+    btnOneGradient:  'linear-gradient(135deg,#FF6B9D,#FF4081)',
+    btnTwoGradient:  'linear-gradient(135deg,#FF9EC4,#FF6B9D)',
+    replayGradient:  'linear-gradient(135deg,#DB2777,#FF6B9D)',
+    rainbowBar:      'linear-gradient(90deg,#FF6B9D,#FF9EC4,#FFB3D1,#FF6B9D,#FF9EC4,#FFB3D1,#FF6B9D)',
+    cardVenue:       'linear-gradient(135deg,#FFB3D1,#FF6B9D)',
+    cardDate:        'linear-gradient(135deg,#FF9EC4,#FF4081)',
+    cardTime:        'linear-gradient(135deg,#FFD6E8,#FF9EC4)',
+    btnUp:           'linear-gradient(160deg,#FF4081,#FF6B9D,#FF9EC4)',
+    btnLeft:         'linear-gradient(160deg,#FF9EC4,#FF6B9D,#FF4081)',
+    btnDown:         'linear-gradient(160deg,#FF6B9D,#FF4081,#c77dff)',
+    btnRight:        'linear-gradient(160deg,#FFB3D1,#FF6B9D,#FF4081)',
+    wallColors:      ['#FFB3C6','#FFCCE0','#FFD6E8','#FFB3C6','#FFCCE0','#FFD6E8','#FFB3C6','#FFCCE0','#FFD6E8','#FFB3C6','#FFCCE0','#FFD6E8','#FFB3C6'],
+    balloonColors:   [['#FF6B9D','#FF9EC4'],['#FF4081','#FF6B9D'],['#FFB3D1','#FF9EC4'],['#FF9EC4','#FFD6E8'],['#FF6B9D','#FFB3D1'],['#FF4081','#FF9EC4']],
+    confettiColors:  ['#FF6B9D','#FF4081','#FFB3D1','#FF9EC4','#FFD6E8','#FF6B9D','#white'],
+    glowStar:        'rgba(255,107,157,0.5)',
+    glowBow:         'rgba(255,64,129,0.45)',
+    glowGift:        'rgba(255,158,196,0.45)',
+    emojiRow:        '🎈💕🎂💗🎁💕🎈',
+  },
+  blue: {
+    bg:              'linear-gradient(160deg,#f0f8ff 0%,#e8f4ff 50%,#f0f0ff 100%)',
+    bodyBg:          'linear-gradient(160deg,#ddeeff 0%,#cce0ff 50%,#ddeeff 100%)',
+    borderColor:     '#3B82F6',
+    titleGradient:   'linear-gradient(135deg,#3B82F6,#06B6D4)',
+    subColor:        '#6094c4',
+    accentOne:       '#3B82F6',
+    accentTwo:       '#06B6D4',
+    btnOneGradient:  'linear-gradient(135deg,#3B82F6,#06B6D4)',
+    btnTwoGradient:  'linear-gradient(135deg,#06B6D4,#6366F1)',
+    replayGradient:  'linear-gradient(135deg,#1D4ED8,#06B6D4)',
+    rainbowBar:      'linear-gradient(90deg,#3B82F6,#06B6D4,#6366F1,#3B82F6,#06B6D4,#6366F1,#3B82F6)',
+    cardVenue:       'linear-gradient(135deg,#93C5FD,#3B82F6)',
+    cardDate:        'linear-gradient(135deg,#67E8F9,#06B6D4)',
+    cardTime:        'linear-gradient(135deg,#A5B4FC,#6366F1)',
+    btnUp:           'linear-gradient(160deg,#3B82F6,#06B6D4,#67E8F9)',
+    btnLeft:         'linear-gradient(160deg,#67E8F9,#06B6D4,#3B82F6)',
+    btnDown:         'linear-gradient(160deg,#6366F1,#3B82F6,#06B6D4)',
+    btnRight:        'linear-gradient(160deg,#06B6D4,#3B82F6,#6366F1)',
+    wallColors:      ['#BFDBFE','#BAE6FD','#C7D2FE','#A5F3FC','#BFDBFE','#BAE6FD','#C7D2FE','#A5F3FC','#BFDBFE','#BAE6FD','#C7D2FE','#A5F3FC','#BFDBFE'],
+    balloonColors:   [['#3B82F6','#93C5FD'],['#06B6D4','#67E8F9'],['#6366F1','#A5B4FC'],['#0EA5E9','#BAE6FD'],['#3B82F6','#BFDBFE'],['#06B6D4','#A5F3FC']],
+    confettiColors:  ['#3B82F6','#06B6D4','#6366F1','#67E8F9','#93C5FD','#A5B4FC','#BAE6FD'],
+    glowStar:        'rgba(255,210,0,0.45)',
+    glowBow:         'rgba(59,130,246,0.5)',
+    glowGift:        'rgba(6,182,212,0.45)',
+    emojiRow:        '🎈⭐🎂🌟🎁⭐🎈',
+  },
+  construction: {
+    bg:              'linear-gradient(160deg,#fffbeb 0%,#fef3c7 50%,#fff7ed 100%)',
+    bodyBg:          'linear-gradient(160deg,#fde68a 0%,#fed7aa 50%,#fde68a 100%)',
+    borderColor:     '#F59E0B',
+    titleGradient:   'linear-gradient(135deg,#F59E0B,#EF4444)',
+    subColor:        '#a0703a',
+    accentOne:       '#F59E0B',
+    accentTwo:       '#EF4444',
+    btnOneGradient:  'linear-gradient(135deg,#F59E0B,#EF4444)',
+    btnTwoGradient:  'linear-gradient(135deg,#EF4444,#F59E0B)',
+    replayGradient:  'linear-gradient(135deg,#B45309,#EF4444)',
+    rainbowBar:      'linear-gradient(90deg,#F59E0B,#EF4444,#FCD34D,#F59E0B,#EF4444,#FCD34D,#F59E0B)',
+    cardVenue:       'linear-gradient(135deg,#FCD34D,#F59E0B)',
+    cardDate:        'linear-gradient(135deg,#FCA5A5,#EF4444)',
+    cardTime:        'linear-gradient(135deg,#FED7AA,#F97316)',
+    btnUp:           'linear-gradient(160deg,#F59E0B,#FCD34D,#FEF3C7)',
+    btnLeft:         'linear-gradient(160deg,#EF4444,#F59E0B,#FCD34D)',
+    btnDown:         'linear-gradient(160deg,#F97316,#EF4444,#F59E0B)',
+    btnRight:        'linear-gradient(160deg,#FCD34D,#F59E0B,#EF4444)',
+    wallColors:      ['#FCD34D','#FED7AA','#FCA5A5','#FDE68A','#FCD34D','#FED7AA','#FCA5A5','#FDE68A','#FCD34D','#FED7AA','#FCA5A5','#FDE68A','#FCD34D'],
+    balloonColors:   [['#F59E0B','#FCD34D'],['#EF4444','#FCA5A5'],['#F97316','#FED7AA'],['#FCD34D','#FEF3C7'],['#F59E0B','#FDE68A'],['#EF4444','#F59E0B']],
+    confettiColors:  ['#F59E0B','#EF4444','#FCD34D','#F97316','#FDE68A','#FCA5A5','#FED7AA'],
+    glowStar:        'rgba(255,210,0,0.5)',
+    glowBow:         'rgba(245,158,11,0.5)',
+    glowGift:        'rgba(239,68,68,0.45)',
+    emojiRow:        '🎈🚜🎂⭐🏗️🚜🎈',
+  },
+  purple: {
+    bg:              'linear-gradient(160deg,#faf5ff 0%,#f3e8ff 50%,#fdf4ff 100%)',
+    bodyBg:          'linear-gradient(160deg,#e9d5ff 0%,#d8b4fe 50%,#e9d5ff 100%)',
+    borderColor:     '#9333EA',
+    titleGradient:   'linear-gradient(135deg,#9333EA,#EC4899)',
+    subColor:        '#9060b0',
+    accentOne:       '#9333EA',
+    accentTwo:       '#EC4899',
+    btnOneGradient:  'linear-gradient(135deg,#9333EA,#EC4899)',
+    btnTwoGradient:  'linear-gradient(135deg,#EC4899,#9333EA)',
+    replayGradient:  'linear-gradient(135deg,#6B21A8,#BE185D)',
+    rainbowBar:      'linear-gradient(90deg,#9333EA,#EC4899,#C084FC,#9333EA,#EC4899,#C084FC,#9333EA)',
+    cardVenue:       'linear-gradient(135deg,#C084FC,#9333EA)',
+    cardDate:        'linear-gradient(135deg,#F9A8D4,#EC4899)',
+    cardTime:        'linear-gradient(135deg,#E879F9,#A21CAF)',
+    btnUp:           'linear-gradient(160deg,#9333EA,#C084FC,#E9D5FF)',
+    btnLeft:         'linear-gradient(160deg,#EC4899,#9333EA,#C084FC)',
+    btnDown:         'linear-gradient(160deg,#A21CAF,#9333EA,#EC4899)',
+    btnRight:        'linear-gradient(160deg,#C084FC,#EC4899,#9333EA)',
+    wallColors:      ['#E9D5FF','#FBCFE8','#DDD6FE','#FDE8FF','#E9D5FF','#FBCFE8','#DDD6FE','#FDE8FF','#E9D5FF','#FBCFE8','#DDD6FE','#FDE8FF','#E9D5FF'],
+    balloonColors:   [['#9333EA','#C084FC'],['#EC4899','#F9A8D4'],['#A21CAF','#E879F9'],['#7C3AED','#DDD6FE'],['#9333EA','#E9D5FF'],['#EC4899','#FBCFE8']],
+    confettiColors:  ['#9333EA','#EC4899','#C084FC','#E879F9','#DDD6FE','#F9A8D4','#E9D5FF'],
+    glowStar:        'rgba(255,210,0,0.45)',
+    glowBow:         'rgba(147,51,234,0.5)',
+    glowGift:        'rgba(236,72,153,0.45)',
+    emojiRow:        '🎈👑🎂🌟💎👑🎈',
+  },
+  ocean: {
+    bg:              'linear-gradient(160deg,#f0fdfa 0%,#e0f2fe 50%,#f0fdf4 100%)',
+    bodyBg:          'linear-gradient(160deg,#99f6e4 0%,#7dd3fc 50%,#99f6e4 100%)',
+    borderColor:     '#0891B2',
+    titleGradient:   'linear-gradient(135deg,#0891B2,#059669)',
+    subColor:        '#4a9090',
+    accentOne:       '#0891B2',
+    accentTwo:       '#059669',
+    btnOneGradient:  'linear-gradient(135deg,#0891B2,#06B6D4)',
+    btnTwoGradient:  'linear-gradient(135deg,#059669,#0891B2)',
+    replayGradient:  'linear-gradient(135deg,#0E7490,#065F46)',
+    rainbowBar:      'linear-gradient(90deg,#0891B2,#059669,#06B6D4,#0891B2,#059669,#06B6D4,#0891B2)',
+    cardVenue:       'linear-gradient(135deg,#67E8F9,#0891B2)',
+    cardDate:        'linear-gradient(135deg,#6EE7B7,#059669)',
+    cardTime:        'linear-gradient(135deg,#7DD3FC,#0284C7)',
+    btnUp:           'linear-gradient(160deg,#0891B2,#06B6D4,#99F6E4)',
+    btnLeft:         'linear-gradient(160deg,#059669,#0891B2,#06B6D4)',
+    btnDown:         'linear-gradient(160deg,#0284C7,#0891B2,#059669)',
+    btnRight:        'linear-gradient(160deg,#06B6D4,#059669,#0891B2)',
+    wallColors:      ['#99F6E4','#BAE6FD','#A7F3D0','#E0F2FE','#99F6E4','#BAE6FD','#A7F3D0','#E0F2FE','#99F6E4','#BAE6FD','#A7F3D0','#E0F2FE','#99F6E4'],
+    balloonColors:   [['#0891B2','#67E8F9'],['#059669','#6EE7B7'],['#0284C7','#7DD3FC'],['#0891B2','#99F6E4'],['#059669','#A7F3D0'],['#06B6D4','#BAE6FD']],
+    confettiColors:  ['#0891B2','#059669','#06B6D4','#67E8F9','#6EE7B7','#99F6E4','#BAE6FD'],
+    glowStar:        'rgba(255,210,0,0.45)',
+    glowBow:         'rgba(8,145,178,0.5)',
+    glowGift:        'rgba(5,150,105,0.45)',
+    emojiRow:        '🎈🐚🎂🌊🐠🐚🎈',
+  },
+  green: {
+    bg:              'linear-gradient(160deg,#f0fdf4 0%,#dcfce7 50%,#f0fdf4 100%)',
+    bodyBg:          'linear-gradient(160deg,#bbf7d0 0%,#86efac 50%,#bbf7d0 100%)',
+    borderColor:     '#16A34A',
+    titleGradient:   'linear-gradient(135deg,#16A34A,#65A30D)',
+    subColor:        '#4a8040',
+    accentOne:       '#16A34A',
+    accentTwo:       '#65A30D',
+    btnOneGradient:  'linear-gradient(135deg,#16A34A,#65A30D)',
+    btnTwoGradient:  'linear-gradient(135deg,#65A30D,#16A34A)',
+    replayGradient:  'linear-gradient(135deg,#14532D,#3F6212)',
+    rainbowBar:      'linear-gradient(90deg,#16A34A,#65A30D,#4ADE80,#16A34A,#65A30D,#4ADE80,#16A34A)',
+    cardVenue:       'linear-gradient(135deg,#86EFAC,#16A34A)',
+    cardDate:        'linear-gradient(135deg,#BEF264,#65A30D)',
+    cardTime:        'linear-gradient(135deg,#4ADE80,#16A34A)',
+    btnUp:           'linear-gradient(160deg,#16A34A,#4ADE80,#BBF7D0)',
+    btnLeft:         'linear-gradient(160deg,#65A30D,#16A34A,#4ADE80)',
+    btnDown:         'linear-gradient(160deg,#14532D,#16A34A,#65A30D)',
+    btnRight:        'linear-gradient(160deg,#4ADE80,#65A30D,#16A34A)',
+    wallColors:      ['#BBF7D0','#DCFCE7','#D9F99D','#F0FDF4','#BBF7D0','#DCFCE7','#D9F99D','#F0FDF4','#BBF7D0','#DCFCE7','#D9F99D','#F0FDF4','#BBF7D0'],
+    balloonColors:   [['#16A34A','#86EFAC'],['#65A30D','#BEF264'],['#15803D','#4ADE80'],['#16A34A','#BBF7D0'],['#65A30D','#DCFCE7'],['#4ADE80','#D9F99D']],
+    confettiColors:  ['#16A34A','#65A30D','#4ADE80','#86EFAC','#BEF264','#BBF7D0','#D9F99D'],
+    glowStar:        'rgba(255,210,0,0.45)',
+    glowBow:         'rgba(22,163,74,0.5)',
+    glowGift:        'rgba(101,163,13,0.45)',
+    emojiRow:        '🎈🦕🎂🌿🥚🦕🎈',
+  },
+};
+
+// T is global — drawMaze() and other functions need it before API loads
+let T = THEMES['rainbow'];
+
+function applyTheme(){
+// ════════════════════════════════════════════════
+// STEP 3 — APPLY THEME TO CSS VARIABLES
+// ════════════════════════════════════════════════
+T = THEMES[C.theme] || THEMES.rainbow;
+
+const root = document.documentElement;
+root.style.setProperty('--border-color',     T.borderColor);
+root.style.setProperty('--title-gradient',   T.titleGradient);
+root.style.setProperty('--sub-color',        T.subColor);
+root.style.setProperty('--accent-one',       T.accentOne);
+root.style.setProperty('--accent-two',       T.accentTwo);
+root.style.setProperty('--btn-one-gradient', T.btnOneGradient);
+root.style.setProperty('--btn-two-gradient', T.btnTwoGradient);
+root.style.setProperty('--replay-gradient',  T.replayGradient);
+root.style.setProperty('--rainbow-bar',      T.rainbowBar);
+root.style.setProperty('--card-venue-gradient', T.cardVenue);
+root.style.setProperty('--card-date-gradient',  T.cardDate);
+root.style.setProperty('--card-time-gradient',  T.cardTime);
+
+document.getElementById('app').style.background = T.bg;
+document.body.style.background = T.bodyBg;
+
+document.getElementById('btn-up').style.background    = T.btnUp;
+document.getElementById('btn-left').style.background  = T.btnLeft;
+document.getElementById('btn-down').style.background  = T.btnDown;
+document.getElementById('btn-right').style.background = T.btnRight;
+
+// ════════════════════════════════════════════════
+}
+
+function populateText(){
+// STEP 4 — POPULATE TEXT CONTENT
+// ════════════════════════════════════════════════
+document.title = C.pageTitle;
+
+// Game screen
+const guestGreeting = C.guest ? `Hi ${C.guest}! ` : '';
+document.getElementById('game-title').textContent = `${guestGreeting}Find the Party! 🎉`;
+
+// Sub text — build dynamically based on what's provided
+let subHTML = '';
+if (C.taglineOne && C.taglineTwo) {
+  subHTML = `<span class="highlight-one">${C.taglineOne}</span> &amp; <span class="highlight-two">${C.taglineTwo}</span> birthday!<br>Collect all the treasures and reach the cake!`;
+} else if (C.taglineOne) {
+  subHTML = `${C.taglineOne} birthday!<br>Collect all the treasures and reach the cake!`;
+} else {
+  subHTML = `Help them find the party!<br>Collect all the treasures and reach the cake!`;
+}
+document.getElementById('game-sub').innerHTML = subHTML;
+
+// Reveal screen
+const revealGreeting = C.guest ? `${C.guest}, you're invited! 🎉` : `You're Invited! 🎉`;
+document.getElementById('reveal-hooray').textContent = revealGreeting;
+document.getElementById('reveal-names').textContent  = C.names;
+document.getElementById('reveal-emoji-row').textContent = T.emojiRow;
+
+// Pills — show one or two depending on what's provided
+const pillOne = document.getElementById('reveal-pill-one');
+const pillTwo = document.getElementById('reveal-pill-two');
+if (C.taglineOne) {
+  pillOne.textContent = C.taglineOne;
+} else {
+  pillOne.textContent = `🎂 Happy Birthday ${C.names}!`;
+}
+if (C.taglineTwo) {
+  pillTwo.textContent = C.taglineTwo;
+  pillTwo.style.display = 'inline-block';
+}
+
+// Detail cards
+document.getElementById('card-venue').textContent = C.venue;
+document.getElementById('card-date').textContent  = C.date;
+document.getElementById('card-time').textContent  = C.time;
+document.getElementById('card-rsvp').textContent  = C.rsvp;
+document.getElementById('cal-day-text').textContent = C.calDay;
+
+// Clock hour hand — calculate angle from hour
+const hourAngle = ((C.clockHour % 12) / 12) * 360 - 90;
+const hourRad   = hourAngle * Math.PI / 180;
+const hx2 = 18 + Math.cos(hourRad) * 9;
+const hy2 = 18 + Math.sin(hourRad) * 9;
+const clockHand = document.getElementById('clock-hour-hand');
+clockHand.setAttribute('x2', hx2.toFixed(1));
+clockHand.setAttribute('y2', hy2.toFixed(1));
+
+// Password sub text
+if (C.guest) {
+  document.getElementById('pass-sub').textContent = `Hey ${C.guest}! Enter the secret password to unlock the party details.`;
+}
+
+// ════════════════════════════════════════════════
+}
+
+// STEP 5 — COLLECTABLE DEFINITIONS PER CHARACTER
+// ════════════════════════════════════════════════
+const CHARACTER_COLLECTABLES = {
+  girl:   ['⭐','🎀','🎁','⭐','🎀','🎁','⭐','🎀','🎁','⭐'],
+  boy:    ['⭐','⚽','🎁','⭐','⚽','🎁','⭐','⚽','🎁','⭐'],
+  princess: ['⭐','👑','💎','⭐','👑','💎','⭐','👑','💎','⭐'],
+  digger: ['⭐','🪖','🔩','⭐','🪖','🔩','⭐','🪖','🔩','⭐'],
+  dinosaur: ['⭐','🥚','🦴','⭐','🥚','🦴','⭐','🥚','🦴','⭐'],
+  mermaid: ['⭐','🐚','💎','⭐','🐚','💎','⭐','🐚','💎','⭐'],
+  superhero: ['⭐','⚡','🛡️','⭐','⚡','🛡️','⭐','⚡','🛡️','⭐'],
+};
+
+// ════════════════════════════════════════════════
+// STEP 6 — MAZE SETUP
+// ════════════════════════════════════════════════
+const COLS=11,ROWS=13,CELL=30,W=COLS*CELL,H=ROWS*CELL;
+const mc=document.getElementById('maze-canvas');
+mc.width=W;mc.height=H;
+const ctx=mc.getContext('2d');
+
+const GRID=[
+  [1,1,1,1,1,1,1,1,1,1,1],[1,0,0,0,1,0,0,0,0,0,1],[1,0,1,0,1,0,1,1,1,0,1],
+  [1,0,1,0,0,0,0,0,1,0,1],[1,0,1,1,1,1,1,0,1,0,1],[1,0,0,0,0,0,1,0,0,0,1],
+  [1,1,1,0,1,0,1,1,1,0,1],[1,0,0,0,1,0,0,0,0,0,1],[1,0,1,1,1,1,1,1,1,0,1],
+  [1,0,0,0,0,0,0,0,1,0,1],[1,1,1,0,1,1,1,0,1,0,1],[1,0,0,0,0,0,0,0,0,0,1],
+  [1,1,1,1,1,1,1,1,1,1,1],
+];
+
+const COLLECTABLE_ICONS = CHARACTER_COLLECTABLES[C.character] || CHARACTER_COLLECTABLES.girl;
+
+const COLLECTABLES=[
+  {r:1,c:3,icon:COLLECTABLE_ICONS[0],key:'c0'},
+  {r:1,c:9,icon:COLLECTABLE_ICONS[1],key:'c1'},
+  {r:3,c:5,icon:COLLECTABLE_ICONS[2],key:'c2'},
+  {r:3,c:1,icon:COLLECTABLE_ICONS[3],key:'c3'},
+  {r:5,c:9,icon:COLLECTABLE_ICONS[4],key:'c4'},
+  {r:5,c:3,icon:COLLECTABLE_ICONS[5],key:'c5'},
+  {r:7,c:1,icon:COLLECTABLE_ICONS[6],key:'c6'},
+  {r:7,c:7,icon:COLLECTABLE_ICONS[7],key:'c7'},
+  {r:9,c:5,icon:COLLECTABLE_ICONS[8],key:'c8'},
+  {r:11,c:7,icon:COLLECTABLE_ICONS[9],key:'c9'},
+];
+
+const START={r:1,c:1},GOAL={r:11,c:9};
+let player={...START},won=false,collected=new Set(),bounceT=0,animFrame=null;
+
+// ════════════════════════════════════════════════
+// STEP 7 — COLLECT BAR & COLLECTABLE LAYER
+// ════════════════════════════════════════════════
+function buildCollectBar(){
+  const bar=document.getElementById('collect-bar');bar.innerHTML='';
+  COLLECTABLES.forEach(c=>{const s=document.createElement('span');s.className='citem';s.id='ci-'+c.key;s.textContent=c.icon;bar.appendChild(s);});
+}
+function updateCollectBar(){COLLECTABLES.forEach(c=>{const el=document.getElementById('ci-'+c.key);if(el)el.classList.toggle('got',collected.has(c.key));});}
+
+function buildCollectableLayer(){
+  const layer=document.getElementById('collectable-layer');layer.innerHTML='';
+  const displayW=mc.offsetWidth||W;
+  const scale=displayW/W;
+  layer.style.width=displayW+'px';
+  layer.style.height=(H*scale)+'px';
+  COLLECTABLES.forEach(co=>{
+    const el=document.createElement('span');
+    el.className='co-emoji';el.id='co-'+co.key;el.textContent=co.icon;
+    el.style.left=((co.c*CELL+CELL/2)*scale)+'px';
+    el.style.top=((co.r*CELL+CELL/2)*scale)+'px';
+    el.style.fontSize=Math.round(CELL*scale*0.72)+'px';
+    el.style.animationDelay=((co.r+co.c)*0.15)+'s';
+    layer.appendChild(el);
+  });
+}
+function updateCollectableLayer(){
+  COLLECTABLES.forEach(co=>{const el=document.getElementById('co-'+co.key);if(el)el.classList.toggle('hidden',collected.has(co.key));});
+}
+
+// ════════════════════════════════════════════════
+// STEP 8 — DRAWING HELPERS
+// ════════════════════════════════════════════════
+function rr(x,y,w,h,r){
+  ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);
+  ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);
+  ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);
+  ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();
+}
+
+// ════════════════════════════════════════════════
+// STEP 9 — DRAW MAZE
+// ════════════════════════════════════════════════
+function drawMaze(){
+  ctx.clearRect(0,0,W,H);ctx.fillStyle='#fff8f2';ctx.fillRect(0,0,W,H);
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    if(GRID[r][c]===1){
+      const x=c*CELL,y=r*CELL;
+      ctx.fillStyle=T.wallColors[r];rr(x+1,y+1,CELL-2,CELL-2,5);ctx.fill();
+      const g=ctx.createLinearGradient(x,y,x,y+CELL*0.55);
+      g.addColorStop(0,'rgba(255,255,255,0.36)');g.addColorStop(1,'rgba(255,255,255,0)');
+      ctx.fillStyle=g;rr(x+2,y+2,CELL-4,CELL*0.5,4);ctx.fill();
+      ctx.fillStyle='rgba(0,0,0,0.06)';ctx.fillRect(x+2,y+CELL-5,CELL-4,4);
+    }
+  }
+  for(let r=0;r<ROWS;r++)for(let c=0;c<COLS;c++){
+    if(GRID[r][c]===0){ctx.fillStyle='rgba(0,0,0,0.04)';ctx.beginPath();ctx.arc(c*CELL+CELL/2,r*CELL+CELL/2,1.4,0,Math.PI*2);ctx.fill();}
+  }
+  // Glow halos (emoji drawn by DOM layer)
+  COLLECTABLES.forEach(co=>{
+    if(collected.has(co.key))return;
+    const cx=co.c*CELL+CELL/2,cy=co.r*CELL+CELL/2;
+    const glowCol = co.icon==='⭐' ? T.glowStar : co.icon===COLLECTABLE_ICONS[1] ? T.glowBow : T.glowGift;
+    const grd=ctx.createRadialGradient(cx,cy,0,cx,cy,CELL*0.62);
+    grd.addColorStop(0,glowCol);grd.addColorStop(1,'rgba(255,255,255,0)');
+    ctx.fillStyle=grd;ctx.beginPath();ctx.arc(cx,cy,CELL*0.62,0,Math.PI*2);ctx.fill();
+  });
+  drawGoal(GOAL.c*CELL,GOAL.r*CELL);
+  drawCharacter(player.c*CELL+CELL/2,player.r*CELL+CELL/2+Math.sin(bounceT)*1.6);
+  bounceT+=0.11;
+}
+
+// ════════════════════════════════════════════════
+// STEP 10 — GOAL (CAKE) — theme-coloured icing
+// ════════════════════════════════════════════════
+function drawGoal(x,y){
+  const cx=x+CELL/2,cy=y+CELL/2,s=CELL*0.4;
+  ctx.fillStyle='rgba(0,0,0,0.1)';ctx.beginPath();ctx.ellipse(cx,cy+s*1.05,s*1.1,s*0.17,0,0,Math.PI*2);ctx.fill();
+  const cg=ctx.createLinearGradient(cx-s,cy-s*0.3,cx+s,cy+s*0.9);cg.addColorStop(0,'#6B3310');cg.addColorStop(1,'#3D1A06');
+  ctx.fillStyle=cg;rr(cx-s*0.92,cy-s*0.28,s*1.84,s*1.18,4);ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.07)';ctx.fillRect(cx-s*0.92,cy+s*0.22,s*1.84,s*0.12);
+  // Icing — use theme accent colour
+  const ig=ctx.createLinearGradient(cx-s,cy-s*0.55,cx+s,cy-s*0.28);
+  ig.addColorStop(0,T.accentTwo+'cc');ig.addColorStop(1,T.accentOne+'ff');
+  ctx.fillStyle=ig;rr(cx-s*0.92,cy-s*0.56,s*1.84,s*0.32,4);ctx.fill();
+  ctx.fillStyle=T.accentTwo+'aa';
+  [-0.6,-0.25,0.1,0.48].forEach(ox=>{
+    ctx.beginPath();ctx.moveTo(cx+s*ox,cy-s*0.28);
+    ctx.bezierCurveTo(cx+s*ox-s*0.04,cy-s*0.1,cx+s*ox+s*0.04,cy,cx+s*ox,cy+s*0.15);
+    ctx.bezierCurveTo(cx+s*ox+s*0.08,cy,cx+s*ox+s*0.08,cy-s*0.1,cx+s*ox+s*0.12,cy-s*0.28);
+    ctx.fill();
+  });
+  // Sprinkles
+  const sc=T.confettiColors;
+  for(let i=0;i<16;i++){
+    const sx=cx-s*0.75+(i%8)*(s*1.5/7),sy=cy-s*0.44+(Math.floor(i/8))*s*0.14;
+    ctx.fillStyle=sc[i%sc.length];ctx.save();ctx.translate(sx,sy);ctx.rotate((i*41)*Math.PI/180);
+    rr(-s*0.055,-s*0.018,s*0.11,s*0.036,s*0.015);ctx.fill();ctx.restore();
+  }
+  // Candles
+  [[cx-s*0.32,cy-s*0.56,T.accentOne],[cx+s*0.32,cy-s*0.56,T.accentTwo]].forEach(([cx2,cy2,col])=>{
+    ctx.fillStyle=col;rr(cx2-s*0.065,cy2-s*0.3,s*0.13,s*0.3,s*0.04);ctx.fill();
+    const fl=ctx.createRadialGradient(cx2,cy2-s*0.34,0,cx2,cy2-s*0.38,s*0.12);
+    fl.addColorStop(0,'#fff7a0');fl.addColorStop(0.5,'#FFD700');fl.addColorStop(1,'rgba(255,100,0,0)');
+    ctx.fillStyle=fl;ctx.beginPath();ctx.ellipse(cx2,cy2-s*0.38,s*0.085,s*0.14,0,0,Math.PI*2);ctx.fill();
+  });
+}
+
+// ════════════════════════════════════════════════
+// STEP 11 — CHARACTER DRAWING
+// Currently: girl (full polished version)
+// Future: boy, princess, digger, dinosaur, mermaid, superhero
+// ════════════════════════════════════════════════
+function drawCharacter(x,y){
+  switch(C.character){
+    case 'girl':     drawGirl(x,y);     break;
+    case 'boy':      drawGirl(x,y);     break; // placeholder until boy is built
+    case 'princess': drawGirl(x,y);     break; // placeholder until princess is built
+    case 'digger':   drawGirl(x,y);     break; // placeholder until digger is built
+    case 'dinosaur': drawGirl(x,y);     break; // placeholder until dino is built
+    case 'mermaid':  drawGirl(x,y);     break; // placeholder until mermaid is built
+    case 'superhero':drawGirl(x,y);     break; // placeholder until superhero is built
+    default:         drawGirl(x,y);
+  }
+}
+
+function drawGirl(x,y){
+  const s=CELL*0.44;ctx.save();
+  ctx.fillStyle='rgba(255,150,190,0.16)';ctx.beginPath();ctx.ellipse(x,y+s*1.55,s*0.55,s*0.11,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#FDDBB4';ctx.beginPath();ctx.ellipse(x-s*0.2,y+s*1.38,s*0.11,s*0.18,0.1,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(x+s*0.2,y+s*1.38,s*0.11,s*0.18,-0.1,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#FF6B9D';ctx.beginPath();ctx.ellipse(x-s*0.21,y+s*1.54,s*0.14,s*0.08,0.15,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(x+s*0.21,y+s*1.54,s*0.14,s*0.08,-0.15,0,Math.PI*2);ctx.fill();
+  const dg=ctx.createLinearGradient(x-s,y,x+s,y+s*1.3);dg.addColorStop(0,T.accentTwo+'dd');dg.addColorStop(0.5,T.accentOne+'ee');dg.addColorStop(1,T.accentOne+'ff');
+  ctx.fillStyle=dg;ctx.beginPath();ctx.moveTo(x-s*0.3,y+s*0.06);ctx.bezierCurveTo(x-s*0.55,y+s*0.5,x-s*1.1,y+s*1.05,x-s*1.05,y+s*1.32);ctx.quadraticCurveTo(x,y+s*1.5,x+s*1.05,y+s*1.32);ctx.bezierCurveTo(x+s*1.1,y+s*1.05,x+s*0.55,y+s*0.5,x+s*0.3,y+s*0.06);ctx.closePath();ctx.fill();
+  ctx.fillStyle='rgba(255,255,255,0.2)';ctx.beginPath();ctx.moveTo(x-s*0.1,y+s*0.06);ctx.bezierCurveTo(x-s*0.22,y+s*0.4,x-s*0.45,y+s*0.8,x-s*0.5,y+s*1.1);ctx.bezierCurveTo(x-s*0.22,y+s*0.85,x-s*0.08,y+s*0.4,x,y+s*0.06);ctx.closePath();ctx.fill();
+  const dc=T.confettiColors;
+  for(let i=0;i<5;i++){ctx.fillStyle=dc[i%dc.length];ctx.beginPath();ctx.arc(x-s*0.82+i*s*0.41,y+s*1.28,s*0.065,0,Math.PI*2);ctx.fill();}
+  ctx.fillStyle=T.accentTwo;ctx.beginPath();ctx.ellipse(x-s*0.14,y+s*0.06,s*0.14,s*0.08,-0.4,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(x+s*0.14,y+s*0.06,s*0.14,s*0.08,0.4,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#FFD700';ctx.beginPath();ctx.arc(x,y+s*0.06,s*0.07,0,Math.PI*2);ctx.fill();
+  ctx.lineCap='round';ctx.lineWidth=s*0.2;ctx.strokeStyle='#FDDBB4';
+  ctx.beginPath();ctx.moveTo(x-s*0.3,y+s*0.16);ctx.quadraticCurveTo(x-s*0.78,y+s*0.42,x-s*0.72,y+s*0.8);ctx.stroke();
+  ctx.beginPath();ctx.moveTo(x+s*0.3,y+s*0.16);ctx.quadraticCurveTo(x+s*0.78,y+s*0.42,x+s*0.72,y+s*0.8);ctx.stroke();
+  ctx.fillStyle='#FDDBB4';ctx.beginPath();ctx.arc(x-s*0.72,y+s*0.82,s*0.1,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+s*0.72,y+s*0.82,s*0.1,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#FDDBB4';ctx.beginPath();ctx.ellipse(x,y-s*0.04,s*0.15,s*0.2,0,0,Math.PI*2);ctx.fill();
+  const hg=ctx.createRadialGradient(x-s*0.1,y-s*0.6,0,x,y-s*0.5,s*0.6);hg.addColorStop(0,'#FDDBB4');hg.addColorStop(1,'#F5C49A');
+  ctx.fillStyle=hg;ctx.beginPath();ctx.ellipse(x,y-s*0.5,s*0.52,s*0.58,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#F5C49A';ctx.beginPath();ctx.ellipse(x-s*0.51,y-s*0.5,s*0.1,s*0.14,0,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(x+s*0.51,y-s*0.5,s*0.1,s*0.14,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#f0a898';ctx.beginPath();ctx.ellipse(x-s*0.51,y-s*0.5,s*0.06,s*0.09,0,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(x+s*0.51,y-s*0.5,s*0.06,s*0.09,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#3D1A05';ctx.beginPath();ctx.ellipse(x,y-s*0.78,s*0.56,s*0.46,0,Math.PI,0);ctx.fill();
+  ctx.beginPath();ctx.moveTo(x-s*0.52,y-s*0.76);ctx.bezierCurveTo(x-s*0.82,y-s*0.4,x-s*0.88,y,x-s*0.72,y+s*0.2);ctx.bezierCurveTo(x-s*0.6,y+s*0.05,x-s*0.58,y-s*0.2,x-s*0.5,y-s*0.6);ctx.fill();
+  ctx.beginPath();ctx.moveTo(x+s*0.52,y-s*0.76);ctx.bezierCurveTo(x+s*0.82,y-s*0.4,x+s*0.88,y,x+s*0.72,y+s*0.2);ctx.bezierCurveTo(x+s*0.6,y+s*0.05,x+s*0.58,y-s*0.2,x+s*0.5,y-s*0.6);ctx.fill();
+  ctx.fillStyle='#2E1204';ctx.beginPath();ctx.ellipse(x,y-s*1.0,s*0.52,s*0.26,0,Math.PI,0);ctx.fill();
+  ctx.fillStyle='rgba(160,80,20,0.22)';ctx.beginPath();ctx.ellipse(x-s*0.08,y-s*0.9,s*0.2,s*0.12,-0.3,0,Math.PI*2);ctx.fill();
+  const hatCx=x,hatTip=y-s*1.5,hatBase=y-s*0.88,hatW=s*0.46;
+  ctx.save();ctx.beginPath();ctx.moveTo(hatCx,hatTip);ctx.lineTo(hatCx-hatW,hatBase);ctx.lineTo(hatCx+hatW,hatBase);ctx.closePath();ctx.clip();
+  [{y0:hatTip,y1:hatTip+(hatBase-hatTip)*0.17,col:'#FF6B6B'},{y0:hatTip+(hatBase-hatTip)*0.17,y1:hatTip+(hatBase-hatTip)*0.34,col:'#FF9F1C'},{y0:hatTip+(hatBase-hatTip)*0.34,y1:hatTip+(hatBase-hatTip)*0.51,col:'#FFD700'},{y0:hatTip+(hatBase-hatTip)*0.51,y1:hatTip+(hatBase-hatTip)*0.68,col:'#4ADE80'},{y0:hatTip+(hatBase-hatTip)*0.68,y1:hatTip+(hatBase-hatTip)*0.84,col:'#60C4F4'},{y0:hatTip+(hatBase-hatTip)*0.84,y1:hatBase+2,col:'#c77dff'}].forEach(st=>{ctx.fillStyle=st.col;ctx.fillRect(hatCx-hatW-2,st.y0,hatW*2+4,st.y1-st.y0+1);});
+  ctx.fillStyle='rgba(255,255,255,0.22)';ctx.beginPath();ctx.moveTo(hatCx,hatTip);ctx.lineTo(hatCx-hatW*0.3,hatBase);ctx.lineTo(hatCx+hatW*0.05,hatBase);ctx.closePath();ctx.fill();ctx.restore();
+  ctx.strokeStyle='rgba(255,255,255,0.55)';ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(hatCx,hatTip);ctx.lineTo(hatCx-hatW,hatBase);ctx.lineTo(hatCx+hatW,hatBase);ctx.closePath();ctx.stroke();
+  ctx.fillStyle='rgba(255,255,255,0.52)';ctx.fillRect(hatCx-hatW,hatBase-s*0.11,hatW*2,s*0.1);
+  const pg=ctx.createRadialGradient(hatCx,hatTip,0,hatCx,hatTip,s*0.14);pg.addColorStop(0,'white');pg.addColorStop(0.5,'#FFD700');pg.addColorStop(1,'rgba(255,215,0,0)');
+  ctx.fillStyle=pg;ctx.beginPath();ctx.arc(hatCx,hatTip,s*0.14,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='rgba(255,130,160,0.38)';ctx.beginPath();ctx.ellipse(x-s*0.3,y-s*0.36,s*0.17,s*0.1,0,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(x+s*0.3,y-s*0.36,s*0.17,s*0.1,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='white';ctx.beginPath();ctx.ellipse(x-s*0.17,y-s*0.52,s*0.12,s*0.14,0,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(x+s*0.17,y-s*0.52,s*0.12,s*0.14,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#5C3317';ctx.beginPath();ctx.ellipse(x-s*0.17,y-s*0.51,s*0.09,s*0.11,0,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.ellipse(x+s*0.17,y-s*0.51,s*0.09,s*0.11,0,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='#1a0a00';ctx.beginPath();ctx.arc(x-s*0.17,y-s*0.51,s*0.055,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+s*0.17,y-s*0.51,s*0.055,0,Math.PI*2);ctx.fill();
+  ctx.fillStyle='white';ctx.beginPath();ctx.arc(x-s*0.14,y-s*0.55,s*0.035,0,Math.PI*2);ctx.fill();ctx.beginPath();ctx.arc(x+s*0.2,y-s*0.55,s*0.035,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#2E1204';ctx.lineWidth=1.1;ctx.lineCap='round';
+  [[-s*0.27,-0.12],[-s*0.18,-0.16],[s*0.07,-0.16],[s*0.17,-0.12],[s*0.27,-0.08]].forEach(([ox,oy])=>{ctx.beginPath();ctx.moveTo(x+ox,y-s*0.62);ctx.lineTo(x+ox+ox*0.15,y-s*0.66+oy*s*0.04);ctx.stroke();});
+  ctx.fillStyle='rgba(200,110,80,0.55)';ctx.beginPath();ctx.ellipse(x,y-s*0.42,s*0.065,s*0.042,0,0,Math.PI*2);ctx.fill();
+  ctx.strokeStyle='#b05030';ctx.lineWidth=1.4;ctx.lineCap='round';ctx.beginPath();ctx.arc(x,y-s*0.26,s*0.2,0.22,Math.PI-0.22);ctx.stroke();
+  ctx.fillStyle='rgba(255,100,130,0.35)';ctx.beginPath();ctx.ellipse(x,y-s*0.2,s*0.14,s*0.055,0,0,Math.PI*2);ctx.fill();
+  ctx.restore();
+}
+
+// ════════════════════════════════════════════════
+// STEP 12 — GAME LOGIC
+// ════════════════════════════════════════════════
+function move(dir){
+  if(won)return;
+  let{r,c}=player;
+  if(dir==='up')r--;else if(dir==='down')r++;else if(dir==='left')c--;else c++;
+  if(r<0||r>=ROWS||c<0||c>=COLS)return;
+  if(GRID[r][c]===1){document.getElementById('status').textContent='Oops — wall! Try another way 😄';return;}
+  player={r,c};
+  const co=COLLECTABLES.find(co=>co.r===r&&co.c===c);
+  if(co&&!collected.has(co.key)){
+    collected.add(co.key);updateCollectBar();updateCollectableLayer();
+    const rem=COLLECTABLES.length-collected.size;
+    document.getElementById('status').textContent=rem>0?`${co.icon} Collected! ${collected.size}/${COLLECTABLES.length} treasures!`:'All treasures! Reach the cake! 🎂';
+  } else if(!(r===GOAL.r&&c===GOAL.c)){
+    const rem=COLLECTABLES.length-collected.size;
+    if(!co)document.getElementById('status').textContent=rem>0?`Find ${rem} more treasure${rem>1?'s':''}!`:'Almost there — reach the cake! 🎂';
+  }
+  if(r===GOAL.r&&c===GOAL.c){won=true;cancelAnimationFrame(animFrame);drawMaze();setTimeout(afterMaze,700);}
+}
+
+// After maze — show password screen or go straight to reveal
+function afterMaze(){
+  if(C.password){
+    document.getElementById('game').style.display='none';
+    document.getElementById('password-screen').classList.add('show');
+    document.getElementById('pass-input').focus();
+  } else {
+    showReveal();
+  }
+}
+
+// Password check
+document.getElementById('pass-submit').addEventListener('click', checkPassword);
+document.getElementById('pass-input').addEventListener('keydown', function(e){
+  if(e.key==='Enter') checkPassword();
+});
+
+function checkPassword(){
+  const entered = document.getElementById('pass-input').value.trim().toLowerCase();
+  const correct = C.password.trim().toLowerCase();
+  if(entered === correct){
+    document.getElementById('password-screen').classList.remove('show');
+    showReveal();
+  } else {
+    document.getElementById('pass-error').textContent = "Hmm, that's not right! Check your message from the host 😊";
+    document.getElementById('pass-input').value='';
+    document.getElementById('pass-input').focus();
+  }
+}
+
+// ════════════════════════════════════════════════
+// STEP 13 — REVEAL
+// ════════════════════════════════════════════════
+function showReveal(){
+  document.getElementById('game').style.display='none';
+  document.getElementById('reveal').classList.add('show');
+  launchConfetti();
+}
+
+function launchConfetti(){
+  const c=document.getElementById('confetti-c'),x=c.getContext('2d');
+  c.width=c.offsetWidth||420;c.height=c.offsetHeight||700;
+  const cols=T.confettiColors;
+  const ps=Array.from({length:160},()=>({x:Math.random()*c.width,y:-20-Math.random()*80,w:5+Math.random()*8,h:8+Math.random()*10,col:cols[Math.floor(Math.random()*cols.length)],sp:2+Math.random()*3,ang:Math.random()*Math.PI*2,spin:(Math.random()-0.5)*0.18,dr:(Math.random()-0.5)*1.5}));
+  let f=0;
+  function draw(){x.clearRect(0,0,c.width,c.height);let alive=false;ps.forEach(p=>{if(p.y<c.height+20){alive=true;p.y+=p.sp;p.x+=p.dr;p.ang+=p.spin;x.save();x.translate(p.x,p.y);x.rotate(p.ang);x.fillStyle=p.col;x.fillRect(-p.w/2,-p.h/2,p.w,p.h);x.restore();}});if(alive&&f++<400)requestAnimationFrame(draw);else x.clearRect(0,0,c.width,c.height);}
+  draw();
+}
+
+// ════════════════════════════════════════════════
+// STEP 14 — RESET
+// ════════════════════════════════════════════════
+document.getElementById('replay-btn').addEventListener('click', resetGame);
+function resetGame(){
+  player={...START};won=false;collected=new Set();bounceT=0;
+  updateCollectBar();updateCollectableLayer();
+  document.getElementById('reveal').classList.remove('show');
+  document.getElementById('password-screen').classList.remove('show');
+  document.getElementById('game').style.display='block';
+  document.getElementById('status').textContent='';
+  document.getElementById('pass-input').value='';
+  document.getElementById('pass-error').textContent='';
+  loop();
+}
+
+// ════════════════════════════════════════════════
+// STEP 15 — BALLOON BACKGROUND
+// ════════════════════════════════════════════════
+const bgCanvas=document.getElementById('bg-canvas'),bgCtx=bgCanvas.getContext('2d');
+let balloons=[];
+function initBg(){
+  bgCanvas.width=bgCanvas.offsetWidth||420;bgCanvas.height=bgCanvas.offsetHeight||700;
+  balloons=Array.from({length:14},(_,i)=>mkB(true,i));
+}
+function mkB(rY,i){
+  const cols=T.balloonColors;
+  const ci=i%cols.length,r=10+Math.random()*11;
+  return{x:20+Math.random()*(bgCanvas.width-40),y:rY?Math.random()*bgCanvas.height:bgCanvas.height+r+60,r,col:cols[ci],speed:0.3+Math.random()*0.45,wobble:Math.random()*Math.PI*2,wobbleSpeed:0.016+Math.random()*0.014,drift:(Math.random()-0.5)*0.28,alpha:0.38+Math.random()*0.28,sl:14+Math.random()*9};
+}
+function drawBalloon(b){
+  bgCtx.save();bgCtx.globalAlpha=b.alpha;
+  const g=bgCtx.createRadialGradient(b.x-b.r*0.3,b.y-b.r*0.3,b.r*0.05,b.x,b.y,b.r);
+  g.addColorStop(0,'rgba(255,255,255,0.55)');g.addColorStop(0.25,b.col[0]);g.addColorStop(1,b.col[1]);
+  bgCtx.fillStyle=g;bgCtx.beginPath();bgCtx.ellipse(b.x,b.y,b.r,b.r*1.18,0,0,Math.PI*2);bgCtx.fill();
+  bgCtx.fillStyle=b.col[1];bgCtx.beginPath();bgCtx.ellipse(b.x,b.y+b.r*1.18,b.r*0.13,b.r*0.11,0,0,Math.PI*2);bgCtx.fill();
+  bgCtx.strokeStyle='rgba(0,0,0,0.15)';bgCtx.lineWidth=0.8;bgCtx.beginPath();bgCtx.moveTo(b.x,b.y+b.r*1.28);bgCtx.quadraticCurveTo(b.x+b.r*0.3,b.y+b.r*1.28+b.sl*0.5,b.x,b.y+b.r*1.28+b.sl);bgCtx.stroke();
+  bgCtx.fillStyle='rgba(255,255,255,0.45)';bgCtx.beginPath();bgCtx.ellipse(b.x-b.r*0.28,b.y-b.r*0.3,b.r*0.22,b.r*0.3,-0.5,0,Math.PI*2);bgCtx.fill();
+  bgCtx.restore();
+}
+function bgLoop(){
+  bgCtx.clearRect(0,0,bgCanvas.width,bgCanvas.height);
+  balloons.forEach((b,i)=>{b.wobble+=b.wobbleSpeed;b.y-=b.speed;b.x+=Math.sin(b.wobble)*0.55+b.drift;if(b.y<-b.r*3)balloons[i]=mkB(false,i);drawBalloon(b);});
+  requestAnimationFrame(bgLoop);
+}
+
+// ════════════════════════════════════════════════
+// STEP 16 — INPUT HANDLERS
+// ════════════════════════════════════════════════
+[['btn-up','up'],['btn-left','left'],['btn-down','down'],['btn-right','right']].forEach(([id,dir])=>{
+  const btn=document.getElementById(id);
+  btn.addEventListener('touchstart',function(e){e.preventDefault();move(dir);},{passive:false});
+  btn.addEventListener('click',function(){move(dir);});
+});
+
+document.addEventListener('keydown',e=>{
+  const m={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right'};
+  if(m[e.key]){e.preventDefault();move(m[e.key]);}
+});
+
+let touchStartX=0,touchStartY=0;
+document.addEventListener('touchstart',e=>{touchStartX=e.touches[0].clientX;touchStartY=e.touches[0].clientY;},{passive:true});
+document.addEventListener('touchend',e=>{
+  const dx=e.changedTouches[0].clientX-touchStartX;
+  const dy=e.changedTouches[0].clientY-touchStartY;
+  if(Math.abs(dx)<10&&Math.abs(dy)<10)return;
+  if(Math.abs(dx)>Math.abs(dy))move(dx>0?'right':'left');
+  else move(dy>0?'down':'up');
+},{passive:true});
+
+window.addEventListener('resize',()=>{initBg();buildCollectableLayer();});
+
+// ════════════════════════════════════════════════
+// STEP 17 — INIT
+// ════════════════════════════════════════════════
+// ════════════════════════════════════════════════
+// STEP 17 — INIT
+// ════════════════════════════════════════════════
+function loop(){if(won)return;drawMaze();animFrame=requestAnimationFrame(loop);}
+
+function initInvite(){
+  // Re-run theme + text population with real data from API
+  applyTheme();
+  populateText();
+  buildCollectBar();
+  buildCollectableLayer();
+  loop();
+}
+
+// Kick everything off
+initBg(); bgLoop(); loadEvent();
+
+</script>
+</body>
+</html>
